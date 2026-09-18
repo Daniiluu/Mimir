@@ -1,0 +1,28 @@
+{
+  "name": "mimir-core",
+  "version": "1.0.0",
+  "description": "",
+  "main": "main.js",
+  "type": "module",
+  "scripts": {
+    "start": "node index.js",
+    "start-gui": "electron .",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.125.0",
+    "@google/genai": "^2.18.0",
+    "@picovoice/eagle-node": "^3.0.1",
+    "@picovoice/pvrecorder-node": "^1.2.9",
+    "better-sqlite3": "^13.0.3",
+    "dotenv": "^17.4.2",
+    "edge-tts-universal": "^1.4.0",
+    "googleapis": "^176.0.0"
+  },
+  "devDependencies": {
+    "electron": "^33.2.0"
+  }
+}

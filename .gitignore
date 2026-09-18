@@ -1,0 +1,11 @@
+# Dependencias
+node_modules/
+dist/
+build/
+
+# Modelos locales y cachés de IA
+.whisper_models/
+
+# Credenciales y secretos
+.env
+credentials.json

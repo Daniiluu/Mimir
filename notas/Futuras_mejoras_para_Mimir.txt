@@ -1,0 +1,8 @@
+--- NOTA: Futuras_mejoras_para_Mimir (24/8/2026, 19:05:54) ---
+
+Reconocimiento por voz
+Subagentes especializados
+Reconocimiento de patrones de comportamiento
+Hablar espontáneamente para recordar cosas (ej: limpiar arena de Misi)
+Leer y responder Gmails
+Leer y responder WhatsApps

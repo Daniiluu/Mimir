@@ -1,0 +1,33 @@
+# ── Dependencias Python para el pipeline de voz de Mimir ─────────────────────
+#
+# PRERREQUISITOS DEL SISTEMA (Windows):
+#   - Python >= 3.11 instalado (https://www.python.org/)
+#   - Microsoft C++ Build Tools o Visual Studio Build Tools (necesario para compilar sounddevice)
+#     Descargar: https://visualstudio.microsoft.com/visual-cpp-build-tools/
+#   - ffmpeg en el PATH (necesario por faster-whisper para decodificar audio)
+#     Instalar con: winget install Gyan.FFmpeg
+#     o descargar de: https://ffmpeg.org/download.html
+#
+# INSTALACIÓN (ejecutar una sola vez):
+#   pip install -r requirements_voz.txt
+#
+# PRIMERA EJECUCIÓN:
+#   Los modelos Whisper (tiny ~75 MB, base ~145 MB) se descargan automáticamente
+#   en la carpeta .whisper_models/ del proyecto y se reutilizan en ejecuciones posteriores.
+#   El modelo XTTS-v2 (~1.8 GB) se descarga automáticamente en ~/.local/share/tts/
+# ─────────────────────────────────────────────────────────────────────────────
+
+# STT (Speech-to-Text)
+faster-whisper>=1.0.3
+
+# Audio
+sounddevice>=0.4.7
+soundfile>=0.12.1
+numpy>=1.26.0
+
+# API Anthropic
+anthropic>=0.40.0
+
+# TTS local (Coqui XTTS-v2) con aceleración CUDA
+coqui-tts>=0.27.5
+
