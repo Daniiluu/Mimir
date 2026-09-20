@@ -9,3 +9,7 @@ build/
 # Credenciales y secretos
 .env
 credentials.json
+.wwebjs_auth/
+.wwebjs_cache/
+whatsapp/.wwebjs_auth/
+whatsapp/.wwebjs_cache/

@@ -4,6 +4,7 @@ import dotenv from 'dotenv';
 import Database from 'better-sqlite3';
 import fs from 'fs';
 import path from 'path';
+import http from 'http';
 import { exec, execSync, spawn } from 'child_process';
 import readline from 'readline';
 import { EdgeTTS } from 'edge-tts-universal';
@@ -149,11 +150,14 @@ const crearTareaNotionTool = {
 
 // 🔊 PROCESO TTS PYTHON (tts_mimir.py - XTTS-v2 local)
 // Subproceso persistente que sintetiza voz localmente con Coqui XTTS-v2.
-// Protocolo: escribe líneas JSON por stdin → { text: '...' }
-//            recibe líneas JSON por stdout → { status: 'done' | 'error' | 'ready' }
+// Protocolo stdin:  { text: '...' }                    → reproduce en altavoces
+//                   { text: '...', out_file: '/ruta' }  → genera WAV sin reproducir
+// Protocolo stdout: { status: 'done'|'error'|'ready' }  | { status: 'file_done', out_file: '/ruta' }
 let ttsPythonProcess  = null;
-let ttsDoneResolver   = null;  // resolve() pendiente para la promesa actual
+let ttsDoneResolver   = null;  // resolve() pendiente para la promesa de reproducción
 let ttsPythonReady    = false; // true cuando el modelo XTTS-v2 está cargado
+// Cola de promesas pendientes para generación de archivos WAV (por out_file)
+const pendingTTSFileRequests = new Map(); // out_file → { resolve, reject, timer }
 
 function getPythonCommand(scriptPath) {
     const py311Path = path.join(process.env.LOCALAPPDATA || '', 'Programs', 'Python', 'Python311', 'python.exe');
@@ -204,6 +208,15 @@ function iniciarProcesoTTS() {
                 ttsPythonReady = true;
                 console.log('✅ XTTS-v2 listo. Voz local activada.');
                 emitirEvento('log', { text: '✅ XTTS-v2 cargado. Voz local lista.' });
+            } else if (evt.status === 'file_done' && evt.out_file) {
+                // Respuesta a una petición de generación de WAV a fichero
+                const pending = pendingTTSFileRequests.get(evt.out_file);
+                if (pending) {
+                    clearTimeout(pending.timer);
+                    pendingTTSFileRequests.delete(evt.out_file);
+                    if (evt.error) pending.reject(new Error(evt.error));
+                    else pending.resolve(evt.out_file);
+                }
             } else if (evt.status === 'done' || evt.status === 'error' || evt.status === 'pong') {
                 if (ttsDoneResolver) {
                     ttsDoneResolver(evt);
@@ -263,6 +276,105 @@ function enviarTextoAlTTS(texto) {
 
         const payload = JSON.stringify({ text: texto }) + '\n';
         ttsPythonProcess.stdin.write(payload);
+    });
+}
+
+// Genera un WAV en disco usando el proceso TTS persistente (modelo ya cargado en GPU).
+// Más rápido que spawnar un proceso nuevo porque no necesita recargar el modelo.
+function generarWavConTTSPersistente(texto, outFile) {
+    return new Promise((resolve, reject) => {
+        if (!ttsPythonProcess || !ttsPythonReady) {
+            return reject(new Error('XTTS-v2 no disponible'));
+        }
+        const TIMEOUT_MS = 60000;
+        const timer = setTimeout(() => {
+            pendingTTSFileRequests.delete(outFile);
+            reject(new Error('Timeout generando WAV con XTTS-v2 (60s)'));
+        }, TIMEOUT_MS);
+
+        pendingTTSFileRequests.set(outFile, { resolve, reject, timer });
+        const payload = JSON.stringify({ text: texto, out_file: outFile }) + '\n';
+        ttsPythonProcess.stdin.write(payload);
+    });
+}
+
+// Servidor HTTP local para que el bot de Telegram acceda al TTS de forma rápida.
+// El bot llama a POST http://localhost:7700/tts con JSON {text: '...'}
+// y recibe el fichero WAV como respuesta binaria.
+const TTS_HTTP_PORT = 7700;
+const TTS_TMP_DIR   = path.join(process.cwd(), '.tts_tmp');
+
+function iniciarServidorTTSHttp() {
+    if (!fs.existsSync(TTS_TMP_DIR)) fs.mkdirSync(TTS_TMP_DIR, { recursive: true });
+
+    const server = http.createServer(async (req, res) => {
+        if (req.method !== 'POST' || req.url !== '/tts') {
+            res.writeHead(404);
+            res.end('Not found');
+            return;
+        }
+
+        let body = '';
+        req.on('data', chunk => { body += chunk.toString(); });
+        req.on('end', async () => {
+            let texto = '';
+            try {
+                texto = JSON.parse(body).text || '';
+            } catch (_) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'JSON inválido' }));
+                return;
+            }
+
+            const textoLimpio = limpiarMarkdownParaVoz(texto);
+            if (!textoLimpio) {
+                res.writeHead(400);
+                res.end(JSON.stringify({ error: 'Texto vacío' }));
+                return;
+            }
+
+            const outFile = path.join(TTS_TMP_DIR, `tts_${Date.now()}_${Math.random().toString(36).slice(2)}.wav`);
+
+            // 🥇 Prioridad 1: XTTS-v2 persistente
+            if (ttsPythonReady && ttsPythonProcess) {
+                try {
+                    await generarWavConTTSPersistente(textoLimpio, outFile);
+                    if (fs.existsSync(outFile)) {
+                        const wavData = fs.readFileSync(outFile);
+                        res.writeHead(200, {
+                            'Content-Type': 'audio/wav',
+                            'Content-Length': wavData.length,
+                        });
+                        res.end(wavData);
+                        setTimeout(() => { try { fs.unlinkSync(outFile); } catch (_) {} }, 5000);
+                        return;
+                    }
+                } catch (err) {
+                    console.warn(`⚠️ [TTS-HTTP] XTTS-v2 falló (${err.message}), usando fallback Edge-TTS...`);
+                }
+            }
+
+            // 🥈 Fallback: Edge-TTS
+            try {
+                const voice = 'es-MX-JorgeNeural';
+                const tts = new EdgeTTS(textoLimpio, voice);
+                const result = await tts.synthesize();
+                const audioBuffer = Buffer.from(await result.audio.arrayBuffer());
+                res.writeHead(200, {
+                    'Content-Type': 'audio/mpeg',
+                    'Content-Length': audioBuffer.length,
+                });
+                res.end(audioBuffer);
+            } catch (errEdge) {
+                console.error(`❌ [TTS-HTTP] Error generando audio: ${errEdge.message}`);
+                res.writeHead(503);
+                res.end(JSON.stringify({ error: errEdge.message }));
+            }
+        });
+    });
+
+    server.listen(TTS_HTTP_PORT, '127.0.0.1', () => {
+        console.log(`🌐 Servidor TTS HTTP escuchando en http://127.0.0.1:${TTS_HTTP_PORT}/tts`);
     });
 }
 
@@ -326,6 +438,52 @@ function iniciarProcesoVoz() {
     });
 
     console.log('🐍 Subproceso de voz Python iniciado (Whisper local + VAD).');
+}
+
+// ✈️ SUBPROCESO DEL BOT DE TELEGRAM (MIMIR ASISTENTE REMOTO)
+let telegramProcess = null;
+
+function iniciarProcesoTelegram() {
+    const scriptPath = path.join(process.cwd(), 'telegram_service', 'bot.js');
+    if (!fs.existsSync(scriptPath)) {
+        console.warn('⚠️ No se encontró telegram_service/bot.js.');
+        return;
+    }
+
+    telegramProcess = spawn(process.execPath, [scriptPath], {
+        cwd: process.cwd(),
+        env: { ...process.env },
+        stdio: ['inherit', 'pipe', 'pipe']
+    });
+
+    telegramProcess.stdout.on('data', (data) => {
+        const text = data.toString('utf-8');
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+            if (line.trim()) {
+                console.log(`✈️ ${line.trim()}`);
+                emitirEvento('log', { text: `✈️ ${line.trim()}` });
+            }
+        }
+    });
+
+    telegramProcess.stderr.on('data', (data) => {
+        const text = data.toString('utf-8');
+        const lines = text.split(/\r?\n/);
+        for (const line of lines) {
+            if (line.trim()) {
+                console.log(`✈️ [Telegram-Log] ${line.trim()}`);
+            }
+        }
+    });
+
+    telegramProcess.on('exit', (code) => {
+        console.warn(`⚠️ Bot de Telegram terminado (código ${code}). Reiniciando en 5 segundos...`);
+        telegramProcess = null;
+        setTimeout(iniciarProcesoTelegram, 5000);
+    });
+
+    console.log('✈️ Subproceso de Telegram Bot iniciado.');
 }
 
 // Devuelve la transcripción del próximo comando detectado por el proceso Python
@@ -1655,9 +1813,25 @@ async function iniciarAsistenteManosLibres() {
     console.log("Motor: Enrutador Directo (<5ms) + Anthropic Claude Tool Calling.");
     console.log("==================================================\n");
 
-    // Arrancar los subprocesos Python de voz y TTS una sola vez
+    // Arrancar los subprocesos Python de voz, TTS y el bot de Telegram
     iniciarProcesoVoz();
     iniciarProcesoTTS();
+    iniciarServidorTTSHttp();  // Servidor HTTP para que el bot de Telegram use XTTS-v2 directamente
+    iniciarProcesoTelegram();
+
+    // Limpieza de procesos hijos al cerrar Mimir
+    process.on('SIGINT', () => {
+        console.log('\n🛑 Cerrando Mimir y subprocesos...');
+        if (telegramProcess) telegramProcess.kill();
+        if (vozPythonProcess) vozPythonProcess.kill();
+        if (ttsPythonProcess) ttsPythonProcess.kill();
+        process.exit(0);
+    });
+    process.on('exit', () => {
+        if (telegramProcess) telegramProcess.kill();
+        if (vozPythonProcess) vozPythonProcess.kill();
+        if (ttsPythonProcess) ttsPythonProcess.kill();
+    });
 
     while (true) {
         process.stdout.write("💤 [Modo de Espera Pasiva: Escuchando 'Mimir'...]\r");

@@ -67,6 +67,7 @@ except Exception:
     pass
 
 try:
+    # pyrefly: ignore [missing-import]
     from TTS.api import TTS
 except ImportError:
     emit({"status": "error", "msg": "TTS no instalado. Ejecuta: pip install TTS"})
@@ -157,6 +158,32 @@ def sintetizar_y_reproducir(tts, texto, speaker_wav, speaker_name, sample_rate):
     sd.wait()
 
 
+def sintetizar_a_archivo(tts, texto, speaker_wav, speaker_name, out_file):
+    """Sintetiza el texto y guarda el WAV directamente a un archivo sin reproducir."""
+    texto_limpio = limpiar_texto_para_tts(texto)
+    if not texto_limpio:
+        raise ValueError("Texto vacío tras limpieza")
+
+    parent = os.path.dirname(os.path.abspath(out_file))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
+
+    if speaker_wav:
+        tts.tts_to_file(
+            text=texto_limpio,
+            language=LANGUAGE,
+            speaker_wav=speaker_wav,
+            file_path=out_file
+        )
+    else:
+        tts.tts_to_file(
+            text=texto_limpio,
+            language=LANGUAGE,
+            speaker=speaker_name,
+            file_path=out_file
+        )
+
+
 def main():
     log("Iniciando servidor TTS Mimir (XTTS-v2)...")
 
@@ -192,6 +219,17 @@ def main():
             log("Cerrando servidor TTS por peticion de Node.js.")
             break
 
+        out_file = cmd.get("out_file")
+        if out_file:
+            try:
+                log(f"Sintetizando a archivo [{out_file}]: {texto[:60]}{'...' if len(texto) > 60 else ''}")
+                sintetizar_a_archivo(tts, texto, speaker_wav, speaker_name, out_file)
+                emit({"status": "file_done", "out_file": out_file})
+            except Exception as e:
+                log(f"Error en sintesis a archivo: {e}")
+                emit({"status": "file_done", "out_file": out_file, "error": str(e)})
+            continue
+
         try:
             log(f"Sintetizando: {texto[:60]}{'...' if len(texto) > 60 else ''}")
             sintetizar_y_reproducir(tts, texto, speaker_wav, speaker_name, sample_rate)
@@ -203,3 +241,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+

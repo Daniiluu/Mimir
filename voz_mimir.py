@@ -38,7 +38,8 @@ MODELS_DIR           = os.path.join(os.path.dirname(os.path.abspath(__file__)), 
 
 VAD_THRESHOLD        = 0.58       # Umbral VAD más estricto para ignorar carraspeos, respiración y ruidos lejanos
 WAKE_MIN_BLOCKS      = 12         # Mínimo ~384ms de voz (descarta toses breves, chasquidos e impulsos de <300ms)
-WAKE_MAX_BLOCKS      = 60         # Máximo ~1.9s acumulados para la palabra clave
+WAKE_MAX_BLOCKS      = 75         # Máximo ~2.4s acumulados para la palabra clave
+WAKE_SILENCE_BLOCKS  = 10         # ~320ms de silencio para dar por finalizada la frase de activación sin cortar entre palabras
 
 CMD_INITIAL_WAIT_SEC = 4.0        # Tiempo máximo para empezar a hablar tras la activación
 CMD_SILENCE_SEC      = 1.4        # Silencio para dar por concluida la orden
@@ -47,7 +48,7 @@ CMD_MAX_SEC          = 12.0       # Duración máxima de la orden
 # Expresión regular estricta: debe comenzar explícitamente con Mimir o su saludo
 # Eliminado 'mimi' y variantes que causan falsos positivos con palabras comunes
 WAKE_WORD_RE = re.compile(
-    r'^(hey\s+|ey\s+|oye\s+|hola\s+|ok\s+)?m[ií]mir\b',
+    r'^(hey\s+|ey\s+|eh\s+|oye\s+|hola\s+|ok\s+)?m[ií]mir\b',
     re.IGNORECASE
 )
 
@@ -185,11 +186,11 @@ def evaluar_activacion(segmentos_lista, texto_raw, audio_wake):
         avg_logprob = getattr(s, 'avg_logprob', 0.0)
 
         # Si Whisper detecta alta probabilidad de no-habla (típico en toses, golpes, estornudos)
-        if no_speech > 0.35:
+        if no_speech > 0.60:
             return False, f"Probable sonido no verbal (no_speech_prob: {no_speech:.2f})"
 
         # Si el logprob medio es muy bajo, Whisper está alucinando con ruido
-        if avg_logprob < -0.80:
+        if avg_logprob < -1.40:
             return False, f"Baja confianza fonética (avg_logprob: {avg_logprob:.2f})"
 
     return True, f"Invocación confirmada ('{coincide.group(0)}')"
@@ -205,6 +206,7 @@ def main():
         while True:
             voice_blocks = []
             preroll = []
+            silence_blocks = 0
 
             while True:
                 try:
@@ -213,7 +215,7 @@ def main():
                     continue
 
                 preroll.append(block)
-                if len(preroll) > 5:
+                if len(preroll) > 6:
                     preroll.pop(0)
 
                 score = vad_score(vad_model, block)
@@ -222,11 +224,18 @@ def main():
                     if not voice_blocks and len(preroll) > 1:
                         voice_blocks.extend(preroll[:-1])
                     voice_blocks.append(block)
-                else:
-                    if len(voice_blocks) >= WAKE_MIN_BLOCKS:
-                        break
-                    else:
-                        voice_blocks = []
+                    silence_blocks = 0
+                elif voice_blocks:
+                    # Permitir breve pausa entre palabras (ej: "Hey" ... "Mimir")
+                    voice_blocks.append(block)
+                    silence_blocks += 1
+                    if silence_blocks >= WAKE_SILENCE_BLOCKS:
+                        # Si tras el silencio acumulado tenemos suficiente voz neta
+                        if (len(voice_blocks) - silence_blocks) >= WAKE_MIN_BLOCKS:
+                            break
+                        else:
+                            voice_blocks = []
+                            silence_blocks = 0
 
                 if len(voice_blocks) >= WAKE_MAX_BLOCKS:
                     break
@@ -237,10 +246,11 @@ def main():
             audio_wake = normalizar_audio(np.concatenate(voice_blocks))
 
             try:
-                # Transcribir con Whisper base sin prompt sesgado
+                # Transcribir con Whisper base guiando el reconocimiento hacia Mimir
                 segs, _ = whisper_model.transcribe(
                     audio_wake,
                     language="es",
+                    initial_prompt="Mimir. Hey Mimir. Oye Mimir.",
                     beam_size=2,
                     temperature=0.0,
                     vad_filter=False,

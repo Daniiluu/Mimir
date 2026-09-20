@@ -33,8 +33,8 @@ import numpy as np
 # Forzar codificación UTF-8 en consola de Windows
 if sys.platform == "win32":
     try:
-        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
-        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding='utf-8', errors='replace')
+        sys.stdout.reconfigure(encoding='utf-8', errors='replace')
+        sys.stderr.reconfigure(encoding='utf-8', errors='replace')
     except Exception:
         pass
 
@@ -270,6 +270,13 @@ def consultar_elementos_notion(notion: Client, busqueda: str = "", datos_filtro:
             filtro_estado = datos_filtro.get("Estado")
             if filtro_estado and estado_val and filtro_estado.lower() != estado_val.lower():
                 continue
+
+            filtro_fecha = datos_filtro.get("Fecha")
+            if filtro_fecha:
+                # Compara solo la parte de fecha (YYYY-MM-DD), ignora hora si la hay
+                fecha_item = (fecha_val or "").split("T")[0]
+                if fecha_item != filtro_fecha.strip():
+                    continue
 
             elementos.append({
                 "id": page["id"],
