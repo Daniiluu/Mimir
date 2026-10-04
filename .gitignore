@@ -2,14 +2,23 @@
 node_modules/
 dist/
 build/
+__pycache__/
+*.pyc
 
 # Modelos locales y cachés de IA
 .whisper_models/
+.tts_tmp/
 
 # Credenciales y secretos
 .env
 credentials.json
+gmail_token.json
+.gmail_processed_ids.json
 .wwebjs_auth/
 .wwebjs_cache/
 whatsapp/.wwebjs_auth/
 whatsapp/.wwebjs_cache/
+
+# Archivos de audio temporales (manteniendo speaker_reference.wav)
+*.wav
+!speaker_reference.wav

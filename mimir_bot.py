@@ -34,6 +34,7 @@ from telegram.ext import (
     Application,
     CommandHandler,
     MessageHandler,
+    CallbackQueryHandler,
     ContextTypes,
     filters,
 )
@@ -409,6 +410,103 @@ CLAUDE_TOOLS = [
             },
             "required": ["query"]
         }
+    },
+    # ── GMAIL (Hermes: Gestión de correo electrónico) ──
+    {
+        "name": "gmail_listar_no_leidos",
+        "description": (
+            "HERMES/GMAIL: Lista los últimos emails no leídos en la bandeja de entrada del señor. "
+            "Úsala cuando el usuario pregunte si tiene emails, mensajes o correos nuevos."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "max_resultados": {
+                    "type": "integer",
+                    "description": "Número máximo de emails a listar (1-10). Por defecto 5."
+                }
+            }
+        }
+    },
+    {
+        "name": "gmail_buscar_email",
+        "description": (
+            "HERMES/GMAIL: Busca emails específicos por remitente, asunto o contenido. "
+            "Úsala cuando el señor pregunte por un email de alguien en concreto o sobre un tema."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "query": {
+                    "type": "string",
+                    "description": "Término de búsqueda (ej: 'from:jose@empresa.com', 'subject:factura', 'reunión')."
+                }
+            },
+            "required": ["query"]
+        }
+    },
+    {
+        "name": "gmail_enviar_email",
+        "description": (
+            "HERMES/GMAIL: Compone y envía un email directamente desde el asistente. "
+            "Úsala cuando el señor pida enviar un correo a alguien."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "destinatario": {
+                    "type": "string",
+                    "description": "Dirección de email del destinatario (ej: 'cliente@empresa.com')."
+                },
+                "asunto": {
+                    "type": "string",
+                    "description": "Asunto del email."
+                },
+                "cuerpo": {
+                    "type": "string",
+                    "description": "Cuerpo completo del email en texto plano, redactado con el estilo profesional de Mimir."
+                }
+            },
+            "required": ["destinatario", "asunto", "cuerpo"]
+        }
+    },
+    {
+        "name": "gmail_actualizar_y_enviar_borrador",
+        "description": (
+            "HERMES/GMAIL: Reescribe el contenido de un borrador de respuesta existente y opcionalmente lo envía. "
+            "Úsala SIEMPRE que el usuario pida modificar, cambiar o corregir un borrador de Gmail. "
+            "Cuando el usuario esté en modo edición de borrador, usa el message_id del contexto activo."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {
+                "message_id": {
+                    "type": "string",
+                    "description": "ID del email cuyo borrador se va a actualizar. Usa el proporcionado en el contexto de edición activa."
+                },
+                "nuevo_cuerpo": {
+                    "type": "string",
+                    "description": "Nuevo texto completo del email de respuesta, redactado con el estilo apropiado según las instrucciones del señor."
+                },
+                "enviar": {
+                    "type": "boolean",
+                    "description": "Si true, envía el email inmediatamente después de actualizarlo. Si false (por defecto), solo actualiza y muestra el nuevo borrador."
+                }
+            },
+            "required": ["message_id", "nuevo_cuerpo"]
+        }
+    },
+    {
+        "name": "generar_informe_matutino",
+        "description": (
+            "INFORME MATUTINO / AUDIO: Genera y sintetiza en audio con la voz clonada del señor el informe del día: "
+            "saludo matutino, pronóstico del tiempo hoy, tareas/planes para hoy y planes para mañana. "
+            "Úsala cuando el señor pida su informe matutino, resumen en voz o audio de la jornada."
+        ),
+        "input_schema": {
+            "type": "object",
+            "properties": {}
+        }
     }
 ]
 
@@ -436,8 +534,63 @@ TOOL_DISPATCHER = {
     "buscar_en_internet": lambda args: buscar_en_internet(
         query=args.get("query", ""),
         num_resultados=args.get("num_resultados", 5)
-    )
+    ),
+    # Gmail tools (importadas desde mimir_gmail)
+    "gmail_listar_no_leidos":            lambda args: _gmail_listar_no_leidos_safe(args),
+    "gmail_buscar_email":                lambda args: _gmail_buscar_email_safe(args),
+    "gmail_enviar_email":                lambda args: _gmail_enviar_email_safe(args),
+    "gmail_actualizar_y_enviar_borrador": lambda args: _gmail_actualizar_borrador_safe(args),
+    "generar_informe_matutino":          lambda args: _generar_informe_matutino_safe(args),
 }
+
+
+def _generar_informe_matutino_safe(args: dict) -> str:
+    try:
+        from mimir_informe import generar_informe_matutino_audio
+        guion, wav_path = generar_informe_matutino_audio()
+        return f"Informe matutino generado en audio ({wav_path}). Contenido redactado: {guion}"
+    except Exception as e:
+        return f"Error al generar informe matutino en audio: {str(e)}"
+
+
+def _gmail_listar_no_leidos_safe(args: dict) -> str:
+    try:
+        from mimir_gmail import gmail_listar_no_leidos
+        return gmail_listar_no_leidos(max_resultados=args.get("max_resultados", 5))
+    except Exception as e:
+        return f"Error al acceder a Gmail: {str(e)}"
+
+
+def _gmail_buscar_email_safe(args: dict) -> str:
+    try:
+        from mimir_gmail import gmail_buscar_email
+        return gmail_buscar_email(query=args.get("query", ""))
+    except Exception as e:
+        return f"Error al buscar en Gmail: {str(e)}"
+
+
+def _gmail_enviar_email_safe(args: dict) -> str:
+    try:
+        from mimir_gmail import gmail_enviar_email
+        return gmail_enviar_email(
+            destinatario=args.get("destinatario", ""),
+            asunto=args.get("asunto", ""),
+            cuerpo=args.get("cuerpo", "")
+        )
+    except Exception as e:
+        return f"Error al enviar email: {str(e)}"
+
+
+def _gmail_actualizar_borrador_safe(args: dict) -> str:
+    try:
+        from mimir_gmail import gmail_actualizar_y_enviar_borrador
+        return gmail_actualizar_y_enviar_borrador(
+            message_id=args.get("message_id", ""),
+            nuevo_cuerpo=args.get("nuevo_cuerpo", ""),
+            enviar=args.get("enviar", False)
+        )
+    except Exception as e:
+        return f"Error al actualizar borrador: {str(e)}"
 
 
 # ── 5. SYSTEM PROMPT DEL ORQUESTADOR ───────────────────────────────────────────
@@ -456,16 +609,21 @@ INFORMACIÓN PERSISTENTE EN BASE DE DATOS LOCAL:
 {memoria_usuario}
 
 ESTRUCTURA DE DOMINIOS DE OPERACIÓN:
-Gestionas con precisión quirúrgica tres áreas estratégicas:
+Gestionas con precisión quirúrgica cuatro áreas estratégicas:
 1. CHRONOS (Vida, Organización y Productividad):
    - Organización en Notion, tareas, notas, recordatorios y compromisos.
-   - Herramienta: `guardar_en_notion`.
+   - Herramientas: `guardar_en_notion`, `consultar_notion`, `eliminar_de_notion`.
 2. DOMUS (Domótica y Control del Hogar):
    - Control de iluminación, clima, interruptores y automatizaciones vía Home Assistant.
    - Herramienta: `controlar_dispositivo_ha`.
 3. MERCURIO (Negocio, Dropshipping e Inteligencia de Mercado):
    - Búsqueda en tiempo real, análisis de competidores, detección de productos ganadores, tendencias y redacción de copys persuasivos de alta conversión.
    - Herramienta: `buscar_en_internet`.
+4. HERMES (Correo Electrónico y Comunicaciones):
+   - Gestión inteligente del Gmail personal del señor: lectura, búsqueda, envío y edición de borradores.
+   - El sistema monitoriza automáticamente el buzón: spam y promociones van a la papelera, emails importantes se notifican con borrador de respuesta, y citas se proponen para Google Calendar.
+   - Herramientas: `gmail_listar_no_leidos`, `gmail_buscar_email`, `gmail_enviar_email`, `gmail_actualizar_y_enviar_borrador`.
+   - IMPORTANTE: Cuando el contexto indique que el señor está editando un borrador (se incluirá [CONTEXTO DE EDICION ACTIVA]), usa SIEMPRE `gmail_actualizar_y_enviar_borrador` con el message_id indicado.
 
 NORMAS INQUEBRANTABLES DE CONDUCTA:
 1. TRATO: Dirígete siempre al usuario como 'señor'. Eres su mayordomo digital y mano derecha estratégica.
@@ -594,6 +752,24 @@ async def cmd_reset(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     await update.message.reply_text("Memoria de conversación a corto plazo reiniciada, señor. Comenzamos con lienzo limpio.")
 
 
+async def cmd_informe(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
+    """Manejador del comando /informe o /resumen (genera y envía informe matutino en voz clonada)."""
+    if not update.effective_user or not update.message:
+        return
+    user_id = update.effective_user.id
+    if TELEGRAM_ALLOWED_USER_ID and str(user_id) != TELEGRAM_ALLOWED_USER_ID:
+        await update.message.reply_text("🔒 Acceso no autorizado.")
+        return
+
+    await update.message.reply_text("🎙️ Sintetizando su informe matutino en audio con su voz clonada, señor. Procesando datos...")
+    try:
+        from mimir_informe import enviar_informe_matutino_telegram
+        await enviar_informe_matutino_telegram(context.bot, user_id)
+    except Exception as e:
+        logger.error(f"Error procesando /informe: {e}")
+        await update.message.reply_text(f"Se ha producido un error al generar su informe: {e}")
+
+
 async def manejar_mensaje_texto(update: Update, context: ContextTypes.DEFAULT_TYPE) -> None:
     """Procesa cualquier mensaje de texto entrante del usuario."""
     if not update.effective_user or not update.message or not update.message.text:
@@ -614,8 +790,33 @@ async def manejar_mensaje_texto(update: Update, context: ContextTypes.DEFAULT_TY
     # Indicar 'escribiendo...' en Telegram mientras Claude piensa y ejecuta tools
     await update.message.chat.send_action(action=ChatAction.TYPING)
 
+    # ── Detectar si el usuario está editando un borrador de Gmail ──
+    mensaje_para_claude = texto_usuario
+    try:
+        from mimir_gmail import get_active_edit_context, clear_active_edit
+        edit_ctx = get_active_edit_context(user_id)
+        if edit_ctx:
+            remitente_display = edit_ctx["from"].split("<")[0].strip() or edit_ctx["from"]
+            mensaje_para_claude = (
+                f"[CONTEXTO DE EDICION ACTIVA]\n"
+                f"El señor está editando el borrador de respuesta para el email:\n"
+                f"- message_id: {edit_ctx['message_id']}\n"
+                f"- De: {remitente_display}\n"
+                f"- Asunto: {edit_ctx['subject']}\n"
+                f"- Borrador actual:\n{edit_ctx['draft_body']}\n\n"
+                f"Instruccion del señor: {texto_usuario}\n\n"
+                f"Usa la herramienta `gmail_actualizar_y_enviar_borrador` con message_id='{edit_ctx['message_id']}' "
+                f"para reescribir el borrador según las instrucciones del señor. "
+                f"Si el señor confirma que quiere enviarlo, pon enviar=true."
+            )
+            logger.info(f"[Bot] Contexto de edición de Gmail inyectado para user {user_id} (email {edit_ctx['message_id']})")
+            clear_active_edit(user_id)
+    except ImportError:
+        pass
+
     # Inferencia y orquestación con Claude
-    respuesta_mimir = await procesar_con_claude_orquestador(user_id, texto_usuario)
+    respuesta_mimir = await procesar_con_claude_orquestador(user_id, mensaje_para_claude)
+
 
     # Envío de la respuesta final limpia
     try:
@@ -637,16 +838,44 @@ def main() -> None:
     logger.info("==================================================")
 
     # Construir aplicación de python-telegram-bot
-    app = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+    app = Application.builder().token(TELEGRAM_BOT_TOKEN).post_init(_on_startup).build()
 
-    # Registrar manejadores
+    # Registrar manejadores de comandos y mensajes
     app.add_handler(CommandHandler("start", cmd_start))
     app.add_handler(CommandHandler("reset", cmd_reset))
     app.add_handler(CommandHandler("limpiar", cmd_reset))
+    app.add_handler(CommandHandler("informe", cmd_informe))
+    app.add_handler(CommandHandler("resumen", cmd_informe))
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, manejar_mensaje_texto))
+
+    # Registrar manejador de botones inline de Gmail
+    try:
+        from mimir_gmail import manejar_callback_gmail
+        app.add_handler(CallbackQueryHandler(manejar_callback_gmail, pattern=r'^gmail_'))
+        logger.info("📧 Callbacks de Gmail registrados correctamente.")
+    except ImportError as e:
+        logger.warning(f"No se pudo cargar el módulo Gmail: {e}")
 
     logger.info("🟢 Mimir Telegram Bot conectado y a la escucha. Pulse Ctrl+C para detener.")
     app.run_polling(drop_pending_updates=True)
+
+
+async def _on_startup(app) -> None:
+    """Lanza tareas de fondo al arrancar el bot (monitor de Gmail y programador matutino 5:40 AM)."""
+    try:
+        from mimir_gmail import bucle_monitorizar_gmail
+        asyncio.create_task(bucle_monitorizar_gmail())
+        logger.info("📧 Monitor de Gmail lanzado en segundo plano.")
+    except Exception as e:
+        logger.warning(f"No se pudo iniciar el monitor de Gmail: {e}. "
+                       f"Verifica que google-api-python-client y google-auth-oauthlib estén instalados.")
+
+    try:
+        from mimir_informe import bucle_programador_540am
+        asyncio.create_task(bucle_programador_540am(app))
+        logger.info("⏰ Programador del informe matutino (05:40 AM) lanzado en segundo plano.")
+    except Exception as e:
+        logger.warning(f"No se pudo iniciar el programador del informe matutino: {e}")
 
 
 if __name__ == "__main__":

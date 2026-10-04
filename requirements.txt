@@ -3,3 +3,8 @@ anthropic>=0.18.0
 requests>=2.31.0
 python-dotenv>=1.0.0
 ddgs>=9.0.0
+# Google APIs (Gmail + Calendar)
+google-auth>=2.28.0
+google-auth-oauthlib>=1.2.0
+google-auth-httplib2>=0.2.0
+google-api-python-client>=2.120.0

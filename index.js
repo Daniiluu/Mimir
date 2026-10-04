@@ -153,9 +153,9 @@ const crearTareaNotionTool = {
 // Protocolo stdin:  { text: '...' }                    → reproduce en altavoces
 //                   { text: '...', out_file: '/ruta' }  → genera WAV sin reproducir
 // Protocolo stdout: { status: 'done'|'error'|'ready' }  | { status: 'file_done', out_file: '/ruta' }
-let ttsPythonProcess  = null;
-let ttsDoneResolver   = null;  // resolve() pendiente para la promesa de reproducción
-let ttsPythonReady    = false; // true cuando el modelo XTTS-v2 está cargado
+let ttsPythonProcess = null;
+let ttsDoneResolver = null;  // resolve() pendiente para la promesa de reproducción
+let ttsPythonReady = false; // true cuando el modelo XTTS-v2 está cargado
 // Cola de promesas pendientes para generación de archivos WAV (por out_file)
 const pendingTTSFileRequests = new Map(); // out_file → { resolve, reject, timer }
 
@@ -186,7 +186,7 @@ function iniciarProcesoTTS() {
 
     ttsPythonProcess.on('error', (err) => {
         console.error(`❌ Error al ejecutar tts_mimir.py: ${err.message}`);
-        ttsPythonReady  = false;
+        ttsPythonReady = false;
         ttsPythonProcess = null;
     });
 
@@ -223,12 +223,12 @@ function iniciarProcesoTTS() {
                     ttsDoneResolver = null;
                 }
             }
-        } catch (_) {}
+        } catch (_) { }
     });
 
     ttsPythonProcess.on('exit', (code) => {
         console.warn(`⚠️ Proceso TTS Python terminado (código ${code}). Volviendo a Edge-TTS.`);
-        ttsPythonReady  = false;
+        ttsPythonReady = false;
         ttsPythonProcess = null;
         if (ttsDoneResolver) { ttsDoneResolver({ status: 'error', msg: 'Proceso TTS cerrado' }); ttsDoneResolver = null; }
     });
@@ -302,7 +302,7 @@ function generarWavConTTSPersistente(texto, outFile) {
 // El bot llama a POST http://localhost:7700/tts con JSON {text: '...'}
 // y recibe el fichero WAV como respuesta binaria.
 const TTS_HTTP_PORT = 7700;
-const TTS_TMP_DIR   = path.join(process.cwd(), '.tts_tmp');
+const TTS_TMP_DIR = path.join(process.cwd(), '.tts_tmp');
 
 function iniciarServidorTTSHttp() {
     if (!fs.existsSync(TTS_TMP_DIR)) fs.mkdirSync(TTS_TMP_DIR, { recursive: true });
@@ -346,7 +346,7 @@ function iniciarServidorTTSHttp() {
                             'Content-Length': wavData.length,
                         });
                         res.end(wavData);
-                        setTimeout(() => { try { fs.unlinkSync(outFile); } catch (_) {} }, 5000);
+                        setTimeout(() => { try { fs.unlinkSync(outFile); } catch (_) { } }, 5000);
                         return;
                     }
                 } catch (err) {
@@ -427,7 +427,7 @@ function iniciarProcesoVoz() {
                 console.error(`❌ [Voz Python] ${evt.message}`);
                 if (vozTranscriptResolver) { vozTranscriptResolver(null); vozTranscriptResolver = null; }
             }
-        } catch (_) {}
+        } catch (_) { }
     });
 
     vozPythonProcess.on('exit', (code) => {
@@ -1229,7 +1229,7 @@ async function ejecutarBuscarInformacionReal(consulta) {
 // 📋 HERRAMIENTA NOTION: Crear tarea/nota en base de datos
 async function ejecutarCrearTareaNotion(titulo, detalles = '') {
     const token = process.env.NOTION_TOKEN;
-    const dbId  = (process.env.NOTION_DATABASE_ID || '').replace(/-/g, '');
+    const dbId = (process.env.NOTION_DATABASE_ID || '').replace(/-/g, '');
 
     if (!token || !dbId) {
         return 'No tengo las credenciales de Notion configuradas, señor. Revisa NOTION_TOKEN y NOTION_DATABASE_ID en el archivo .env.';

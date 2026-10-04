@@ -184,6 +184,27 @@ def sintetizar_a_archivo(tts, texto, speaker_wav, speaker_name, out_file):
         )
 
 
+_global_tts_instance = None
+_global_speaker_wav = None
+_global_speaker_name = None
+
+def obtener_instancia_tts():
+    """Obtiene la instancia global cargada de XTTS-v2 (singleton)."""
+    global _global_tts_instance, _global_speaker_wav, _global_speaker_name
+    if _global_tts_instance is None:
+        _global_tts_instance, _global_speaker_wav, _global_speaker_name = cargar_modelo()
+    return _global_tts_instance, _global_speaker_wav, _global_speaker_name
+
+def generar_audio_clonado(texto: str, out_file: str) -> str:
+    """
+    Sintetiza un texto usando XTTS-v2 y la voz clonada de speaker_reference.wav.
+    Guarda el resultado en out_file y retorna la ruta del archivo.
+    """
+    tts, speaker_wav, speaker_name = obtener_instancia_tts()
+    sintetizar_a_archivo(tts, texto, speaker_wav, speaker_name, out_file)
+    return out_file
+
+
 def main():
     log("Iniciando servidor TTS Mimir (XTTS-v2)...")
 
